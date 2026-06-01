@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nyumba Admin — Uganda</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green: #1B5E20; --green-l: #2E7D32; --green-xl: #E8F5E9;
+      --gold: #F9A825; --gold-l: #FFF8E1;
+      --red: #C62828; --red-l: #FFEBEE;
+      --blue: #1565C0; --blue-l: #E3F2FD;
+      --bg: #F4F6F9; --sidebar: #1B5E20; --white: #fff;
+      --border: #E0E8E0; --text: #1A1A1A; --muted: #6B7280;
+      --radius: 12px; --shadow: 0 2px 12px rgba(0,0,0,0.07);
+    }
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg); color: var(--text); }
+    #root { display: flex; height: 100vh; overflow: hidden; }
+    .sidebar { width: 230px; background: var(--sidebar); color: #fff; display: flex; flex-direction: column; flex-shrink: 0; }
+    .sidebar-logo { padding: 24px 20px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .sidebar-logo h1 { font-size: 24px; font-weight: 800; }
+    .sidebar-logo p { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+    .sidebar-nav { padding: 12px 8px; flex: 1; overflow-y: auto; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; cursor: pointer; margin-bottom: 2px; font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.8); transition: all 0.15s; }
+    .nav-item:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    .nav-item.active { background: rgba(255,255,255,0.18); color: #fff; }
+    .nav-badge { background: var(--gold); color: var(--green); font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 20px; margin-left: auto; }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar { background: var(--white); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .topbar h2 { font-size: 18px; font-weight: 800; color: var(--text); }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    .admin-badge { background: var(--green-xl); color: var(--green); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
+    .content { flex: 1; overflow-y: auto; padding: 24px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
+    .stat-card { background: var(--white); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+    .stat-card .stat-icon { font-size: 28px; margin-bottom: 8px; }
+    .stat-card .stat-num { font-size: 28px; font-weight: 800; color: var(--text); }
+    .stat-card .stat-label { font-size: 12px; color: var(--muted); margin-top: 2px; font-weight: 600; }
+    .stat-card.alert { border-left: 4px solid var(--gold); }
+    .stat-card.danger { border-left: 4px solid var(--red); }
+    .section-title { font-size: 16px; font-weight: 800; color: var(--text); margin-bottom: 14px; }
+    table { width: 100%; background: var(--white); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); border-collapse: collapse; }
+    th { background: var(--green-xl); color: var(--green); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 12px 16px; text-align: left; }
+    td { padding: 13px 16px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #FAFAFA; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px; }
+    .badge-pending { background: #FFF3E0; color: #E65100; }
+    .badge-active { background: var(--green-xl); color: var(--green); }
+    .badge-rejected { background: var(--red-l); color: var(--red); }
+    .badge-suspended { background: #F3E5F5; color: #6A1B9A; }
+    .badge-landlord { background: var(--blue-l); color: var(--blue); }
+    .badge-tenant { background: #FFF3E0; color: #E65100; }
+    .badge-verified { background: var(--green-xl); color: var(--green); }
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; border: none; transition: all 0.15s; }
+    .btn-primary { background: var(--green); color: #fff; }
+    .btn-primary:hover { background: var(--green-l); }
+    .btn-danger { background: var(--red); color: #fff; }
+    .btn-danger:hover { background: #B71C1C; }
+    .btn-gold { background: var(--gold); color: #fff; }
+    .btn-outline { background: transparent; border: 1.5px solid var(--border); color: var(--text); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .search-bar { display: flex; align-items: center; gap: 10px; background: var(--white); border: 1.5px solid var(--border); border-radius: 10px; padding: 8px 14px; margin-bottom: 16px; }
+    .search-bar input { flex: 1; border: none; outline: none; font-size: 14px; font-family: inherit; }
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .detail-card { background: var(--white); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+    .detail-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .detail-value { font-size: 14px; font-weight: 600; color: var(--text); }
+    .image-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .image-grid img { width: 120px; height: 90px; border-radius: 8px; object-fit: cover; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+    .modal { background: var(--white); border-radius: 16px; padding: 24px; max-width: 500px; width: 100%; }
+    .modal h3 { font-size: 18px; font-weight: 800; margin-bottom: 16px; }
+    .modal textarea { width: 100%; border: 1.5px solid var(--border); border-radius: 8px; padding: 10px; font-size: 14px; font-family: inherit; min-height: 80px; outline: none; resize: vertical; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
+    .tabs { display: flex; gap: 2px; background: var(--bg); border-radius: 10px; padding: 4px; margin-bottom: 18px; width: fit-content; }
+    .tab { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--muted); }
+    .tab.active { background: var(--white); color: var(--green); box-shadow: var(--shadow); }
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
+    .loading { text-align: center; padding: 40px; color: var(--muted); font-weight: 600; }
+    input[type="text"], input[type="search"] { font-family: inherit; }
+    .flag-chip { display: inline-flex; align-items: center; gap: 4px; background: #FFF3E0; color: #E65100; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; }
+    .video-link { display: inline-flex; align-items: center; gap: 5px; color: var(--blue); font-size: 13px; font-weight: 600; text-decoration: none; }
+    .video-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+// ─── Config ─────────────────────────────────────────────────
+const API_BASE = 'https://nyumba-api.onrender.com'; // Change to your API URL
+let authToken = localStorage.getItem('admin_token') || '';
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API_BASE + path, {
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}`, ...options.headers },
+    ...options,
+  });
+  if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Request failed'); }
+  return res.json();
+}
+
+// ─── Login Screen ─────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [step, setStep] = useState('phone');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function sendOTP() {
+    setLoading(true); setError('');
+    try {
+      await fetch(API_BASE + '/auth/send-otp', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ phone }) });
+      setStep('otp');
+    } catch(e) { setError(e.message); } finally { setLoading(false); }
+  }
+
+  async function verifyOTP() {
+    setLoading(true); setError('');
+    try {
+      const data = await fetch(API_BASE + '/auth/verify-otp', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ phone, code: otp }) }).then(r => r.json());
+      if (data.user?.role !== 'admin') { setError('Not an admin account'); return; }
+      authToken = data.token;
+      localStorage.setItem('admin_token', data.token);
+      onLogin(data.user);
+    } catch(e) { setError(e.message); } finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', background:'var(--bg)' }}>
+      <div style={{ background:'#fff', borderRadius:16, padding:32, width:360, boxShadow:'0 8px 40px rgba(0,0,0,0.12)' }}>
+        <div style={{ textAlign:'center', marginBottom:28 }}>
+          <div style={{ fontSize:48, marginBottom:8 }}>🏠</div>
+          <h1 style={{ fontSize:24, fontWeight:800, color:'var(--green)' }}>Nyumba Admin</h1>
+          <p style={{ fontSize:14, color:'var(--muted)', marginTop:4 }}>Uganda-wide property management</p>
+        </div>
+        {error && <div style={{ background:'var(--red-l)', color:'var(--red)', padding:'10px 14px', borderRadius:8, fontSize:13, marginBottom:14, fontWeight:600 }}>{error}</div>}
+        {step === 'phone' ? (
+          <>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+256700000000" style={{ width:'100%', border:'1.5px solid var(--border)', borderRadius:10, padding:'12px 14px', fontSize:15, fontFamily:'inherit', outline:'none', marginBottom:14 }} />
+            <button className="btn btn-primary" style={{ width:'100%', justifyContent:'center', padding:'13px' }} onClick={sendOTP} disabled={loading || !phone}>
+              {loading ? 'Sending...' : 'Send OTP'}
+            </button>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize:13, color:'var(--muted)', marginBottom:12 }}>Enter the 6-digit code sent to {phone}</p>
+            <input value={otp} onChange={e=>setOtp(e.target.value)} placeholder="000000" maxLength={6} style={{ width:'100%', border:'1.5px solid var(--border)', borderRadius:10, padding:'12px 14px', fontSize:22, fontFamily:'inherit', outline:'none', marginBottom:14, textAlign:'center', letterSpacing:8, fontWeight:800 }} />
+            <button className="btn btn-primary" style={{ width:'100%', justifyContent:'center', padding:'13px' }} onClick={verifyOTP} disabled={loading || otp.length < 6}>
+              {loading ? 'Verifying...' : 'Login'}
+            </button>
+            <button className="btn btn-outline" style={{ width:'100%', justifyContent:'center', padding:'10px', marginTop:8 }} onClick={()=>setStep('phone')}>← Back</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────
+function Dashboard() {
+  const [stats, setStats] = useState(null);
+  useEffect(() => { apiFetch('/admin/stats').then(setStats).catch(console.error); }, []);
+
+  if (!stats) return <div className="loading">Loading dashboard...</div>;
+
+  const cards = [
+    { icon:'👥', num: stats.total_users, label:'Total Users', cls:'' },
+    { icon:'🏡', num: stats.landlords, label:'Landlords', cls:'' },
+    { icon:'🔍', num: stats.tenants, label:'Tenants', cls:'' },
+    { icon:'⏳', num: stats.pending_listings, label:'Pending Listings', cls:'alert' },
+    { icon:'✅', num: stats.active_listings, label:'Active Listings', cls:'' },
+    { icon:'🚩', num: stats.open_reports, label:'Open Reports', cls:'danger' },
+    { icon:'🤝', num: stats.completed_deals, label:'Deals Done', cls:'' },
+  ];
+
+  return (
+    <div>
+      <div style={{ background:'var(--green-xl)', borderRadius:12, padding:'16px 20px', marginBottom:20, display:'flex', gap:12, alignItems:'center' }}>
+        <span style={{ fontSize:24 }}>🇺🇬</span>
+        <div>
+          <div style={{ fontWeight:800, color:'var(--green)', fontSize:15 }}>Nyumba — Uganda-wide Coverage</div>
+          <div style={{ fontSize:12, color:'var(--muted)' }}>Central · Eastern · Northern · Western regions</div>
+        </div>
+      </div>
+      <div className="stats-grid">
+        {cards.map((c,i) => (
+          <div key={i} className={`stat-card ${c.cls}`}>
+            <div className="stat-icon">{c.icon}</div>
+            <div className="stat-num">{c.num}</div>
+            <div className="stat-label">{c.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Pending Listings Queue ───────────────────────────────────
+function ListingsQueue() {
+  const [listings, setListings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [showReject, setShowReject] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    apiFetch('/admin/properties/pending').then(d => { setListings(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function approve(id) {
+    setProcessing(true);
+    try {
+      await apiFetch(`/admin/properties/${id}/approve`, { method: 'PUT' });
+      setListings(prev => prev.filter(l => l.id !== id));
+      setSelected(null);
+      alert('✅ Listing approved and live!');
+    } catch(e) { alert('Error: ' + e.message); }
+    setProcessing(false);
+  }
+
+  async function reject() {
+    if (!rejectReason.trim()) { alert('Please enter a rejection reason'); return; }
+    setProcessing(true);
+    try {
+      await apiFetch(`/admin/properties/${selected.id}/reject`, { method: 'PUT', body: JSON.stringify({ reason: rejectReason }) });
+      setListings(prev => prev.filter(l => l.id !== selected.id));
+      setSelected(null); setShowReject(false); setRejectReason('');
+      alert('Listing rejected. Landlord notified via WhatsApp.');
+    } catch(e) { alert('Error: ' + e.message); }
+    setProcessing(false);
+  }
+
+  if (loading) return <div className="loading">Loading pending listings...</div>;
+
+  return (
+    <div>
+      {!selected ? (
+        <>
+          <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>{listings.length} listings awaiting review</p>
+          {listings.length === 0 ? (
+            <div className="empty-state"><div className="empty-icon">🎉</div><p>All listings reviewed!</p></div>
+          ) : (
+            <table>
+              <thead><tr><th>Title</th><th>District</th><th>Type</th><th>Price</th><th>Landlord</th><th>Submitted</th><th>Action</th></tr></thead>
+              <tbody>
+                {listings.map(l => (
+                  <tr key={l.id}>
+                    <td style={{ fontWeight:700 }}>{l.title}</td>
+                    <td><span style={{ fontWeight:600 }}>🇺🇬 {l.district}</span>{l.region && <span style={{ fontSize:11, color:'var(--muted)', marginLeft:4 }}>({l.region})</span>}</td>
+                    <td><span className="badge badge-pending">{l.type?.replace('_',' ')}</span></td>
+                    <td style={{ fontWeight:700, color:'var(--green)' }}>UGX {l.price?.toLocaleString()}</td>
+                    <td>
+                      <div style={{ fontWeight:600 }}>{l.users?.name}</div>
+                      <div style={{ fontSize:11, color:'var(--muted)' }}>{l.users?.phone}</div>
+                    </td>
+                    <td style={{ color:'var(--muted)', fontSize:12 }}>{new Date(l.created_at).toLocaleDateString()}</td>
+                    <td>
+                      <button className="btn btn-primary" style={{ fontSize:12, padding:'6px 12px' }} onClick={() => setSelected(l)}>Review →</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      ) : (
+        <div>
+          <button className="btn btn-outline" style={{ marginBottom:16 }} onClick={() => setSelected(null)}>← Back to queue</button>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
+            <div>
+              <h2 style={{ fontSize:22, fontWeight:800 }}>{selected.title}</h2>
+              <p style={{ color:'var(--muted)', fontSize:14, marginTop:4 }}>
+                🇺🇬 {[selected.town, selected.parish, selected.district, selected.region].filter(Boolean).join(' · ')}
+              </p>
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button className="btn btn-primary" disabled={processing} onClick={() => approve(selected.id)}>✅ Approve & Make Live</button>
+              <button className="btn btn-danger" disabled={processing} onClick={() => setShowReject(true)}>❌ Reject</button>
+            </div>
+          </div>
+
+          <div className="detail-grid" style={{ marginBottom:20 }}>
+            <div className="detail-card">
+              <div className="detail-label">Landlord</div>
+              <div className="detail-value" style={{ fontSize:16, fontWeight:800 }}>{selected.users?.name}</div>
+              <div style={{ fontSize:13, color:'var(--muted)', marginTop:2 }}>{selected.users?.phone}</div>
+              {selected.users?.national_id_verified && <span className="badge badge-active" style={{ marginTop:6 }}>🛡 ID Verified</span>}
+              {selected.users?.is_flagged && <span className="flag-chip" style={{ marginTop:6, marginLeft:6 }}>⚠️ Flagged</span>}
+            </div>
+            <div className="detail-card">
+              <div className="detail-label">Property Details</div>
+              <div className="detail-value">UGX {selected.price?.toLocaleString()} / {selected.price_period}</div>
+              <div style={{ fontSize:13, color:'var(--muted)', marginTop:4 }}>{selected.type?.replace('_',' ')} · {selected.district}, Uganda</div>
+              {selected.full_address && <div style={{ fontSize:12, color:'var(--muted)', marginTop:4 }}>{selected.full_address}</div>}
+              {selected.landmark && <div style={{ fontSize:12, color:'var(--blue)', marginTop:4 }}>📍 Near: {selected.landmark}</div>}
+            </div>
+          </div>
+
+          {selected.description && (
+            <div className="detail-card" style={{ marginBottom:16 }}>
+              <div className="detail-label">Description</div>
+              <p style={{ fontSize:14, color:'var(--text)', marginTop:6, lineHeight:'1.6' }}>{selected.description}</p>
+            </div>
+          )}
+
+          {selected.property_images?.length > 0 && (
+            <div className="detail-card" style={{ marginBottom:16 }}>
+              <div className="detail-label" style={{ marginBottom:8 }}>Photos ({selected.property_images.length})</div>
+              <div className="image-grid">
+                {selected.property_images.sort((a,b)=>a.order_index-b.order_index).map((img,i) => (
+                  <img key={i} src={img.url} alt={`Photo ${i+1}`} onClick={() => window.open(img.url)} style={{ cursor:'pointer' }} />
+                ))}
+              </div>
+              <p style={{ fontSize:12, color:'var(--muted)' }}>Click photos to open full size. Check GPS metadata matches the district.</p>
+            </div>
+          )}
+
+          {selected.video_url && (
+            <div className="detail-card" style={{ marginBottom:16 }}>
+              <div className="detail-label">Verification Video</div>
+              <div style={{ marginTop:8 }}>
+                <a href={selected.video_url} target="_blank" className="video-link">▶ Watch Verification Video</a>
+                <p style={{ fontSize:12, color:'var(--muted)', marginTop:6 }}>Check: Does the person have keys? Does the property match the photos?</p>
+              </div>
+            </div>
+          )}
+
+          {Array.isArray(selected.amenities) && selected.amenities.length > 0 && (
+            <div className="detail-card">
+              <div className="detail-label">Amenities</div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
+                {selected.amenities.map(a => <span key={a} className="badge badge-active">{a.replace('_',' ')}</span>)}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showReject && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>❌ Reject Listing</h3>
+            <p style={{ fontSize:13, color:'var(--muted)', marginBottom:12 }}>This reason will be sent to the landlord via WhatsApp so they can fix and resubmit.</p>
+            <textarea value={rejectReason} onChange={e=>setRejectReason(e.target.value)} placeholder="e.g. Video does not show you unlocking the door. Photos don't match the listed district." />
+            <div className="modal-actions">
+              <button className="btn btn-outline" onClick={() => setShowReject(false)}>Cancel</button>
+              <button className="btn btn-danger" disabled={processing} onClick={reject}>Send Rejection</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Reports Queue ────────────────────────────────────────────
+function ReportsQueue() {
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('pending');
+  const [showModal, setShowModal] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [action, setAction] = useState('dismiss');
+  const [note, setNote] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    apiFetch(`/admin/reports?status=${tab}`).then(d => { setReports(d); setLoading(false); }).catch(() => setLoading(false));
+  }, [tab]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function resolve() {
+    setProcessing(true);
+    try {
+      await apiFetch(`/admin/reports/${selected.id}`, { method: 'PUT', body: JSON.stringify({ action, admin_note: note }) });
+      setReports(prev => prev.filter(r => r.id !== selected.id));
+      setShowModal(false); setSelected(null); setNote('');
+      alert(`Report ${action}ed successfully`);
+    } catch(e) { alert('Error: ' + e.message); }
+    setProcessing(false);
+  }
+
+  if (loading) return <div className="loading">Loading reports...</div>;
+
+  return (
+    <div>
+      <div className="tabs">
+        {['pending','dismissed','suspended','banned'].map(t => (
+          <div key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)} style={{ textTransform:'capitalize' }}>{t}</div>
+        ))}
+      </div>
+      {reports.length === 0 ? (
+        <div className="empty-state"><div className="empty-icon">✅</div><p>No {tab} reports</p></div>
+      ) : (
+        <table>
+          <thead><tr><th>Property</th><th>District</th><th>Reason</th><th>Reporter</th><th>Reported At</th><th>Action</th></tr></thead>
+          <tbody>
+            {reports.map(r => (
+              <tr key={r.id}>
+                <td style={{ fontWeight:700 }}>{r.properties?.title || 'N/A'}</td>
+                <td>🇺🇬 {r.properties?.district || '—'}</td>
+                <td><span className="badge badge-pending">{r.reason}</span></td>
+                <td>
+                  <div style={{ fontWeight:600 }}>{r.reporter?.name}</div>
+                  <div style={{ fontSize:11, color:'var(--muted)' }}>{r.reporter?.phone}</div>
+                </td>
+                <td style={{ color:'var(--muted)', fontSize:12 }}>{new Date(r.created_at).toLocaleDateString()}</td>
+                <td>
+                  <button className="btn btn-outline" style={{ fontSize:12, padding:'6px 12px' }} onClick={() => { setSelected(r); setShowModal(true); }}>Resolve</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {showModal && selected && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Resolve Report</h3>
+            <p style={{ fontSize:13, color:'var(--muted)', marginBottom:12 }}>
+              <strong>Property:</strong> {selected.properties?.title}<br/>
+              <strong>Reason:</strong> {selected.reason}<br/>
+              {selected.details && <><strong>Details:</strong> {selected.details}</>}
+            </p>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
+              {['dismiss','warn','suspend','ban'].map(a => (
+                <button key={a} className={`btn ${action===a ? 'btn-primary' : 'btn-outline'}`} onClick={() => setAction(a)} style={{ textTransform:'capitalize', fontSize:13 }}>{a}</button>
+              ))}
+            </div>
+            <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Admin note (optional)..." />
+            <div className="modal-actions">
+              <button className="btn btn-outline" onClick={() => setShowModal(false)}>Cancel</button>
+              <button className="btn btn-primary" disabled={processing} onClick={resolve}>Confirm Action</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Users ────────────────────────────────────────────────────
+function UsersPage() {
+  const [users, setUsers] = useState([]);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [banReason, setBanReason] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  async function doSearch() {
+    setLoading(true);
+    apiFetch(`/admin/users?q=${encodeURIComponent(search)}`).then(d => { setUsers(d); setLoading(false); }).catch(() => setLoading(false));
+  }
+
+  useEffect(() => { doSearch(); }, []);
+
+  async function banUser() {
+    if (!banReason.trim()) { alert('Ban reason required'); return; }
+    setProcessing(true);
+    try {
+      await apiFetch(`/admin/users/${selected.id}/ban`, { method: 'PUT', body: JSON.stringify({ reason: banReason }) });
+      setUsers(prev => prev.map(u => u.id === selected.id ? {...u, is_banned:true, ban_reason:banReason} : u));
+      setSelected(null); setBanReason('');
+      alert('User banned and blacklisted');
+    } catch(e) { alert('Error: ' + e.message); }
+    setProcessing(false);
+  }
+
+  async function verifyId(userId, approved) {
+    const reason = approved ? null : prompt('Rejection reason:');
+    if (!approved && !reason) return;
+    try {
+      await apiFetch(`/admin/users/${userId}/verify-id`, { method: 'PUT', body: JSON.stringify({ approved, reason }) });
+      setUsers(prev => prev.map(u => u.id === userId ? {...u, national_id_verified:approved, is_verified:approved} : u));
+    } catch(e) { alert('Error: ' + e.message); }
+  }
+
+  return (
+    <div>
+      <div className="search-bar">
+        <span>🔍</span>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or phone..." onKeyDown={e => e.key==='Enter' && doSearch()} />
+        <button className="btn btn-primary" onClick={doSearch} style={{ fontSize:13 }}>Search</button>
+      </div>
+      {loading ? <div className="loading">Searching...</div> : (
+        <table>
+          <thead><tr><th>Name</th><th>Phone</th><th>Role</th><th>District</th><th>Status</th><th>ID Verified</th><th>Joined</th><th>Action</th></tr></thead>
+          <tbody>
+            {users.map(u => (
+              <tr key={u.id}>
+                <td style={{ fontWeight:700 }}>{u.name}</td>
+                <td style={{ fontFamily:'monospace', fontSize:13 }}>{u.phone}</td>
+                <td><span className={`badge badge-${u.role}`} style={{ textTransform:'capitalize' }}>{u.role}</span></td>
+                <td>{u.district ? `🇺🇬 ${u.district}` : '—'}</td>
+                <td>
+                  {u.is_banned && <span className="badge badge-rejected">Banned</span>}
+                  {u.is_flagged && !u.is_banned && <span className="flag-chip">⚠️ Flagged</span>}
+                  {!u.is_banned && !u.is_flagged && <span className="badge badge-active">Active</span>}
+                </td>
+                <td>
+                  {u.national_id_verified ? <span className="badge badge-verified">✅ Verified</span>
+                   : u.national_id_url ? <span className="badge badge-pending">⏳ Pending</span>
+                   : <span style={{ color:'var(--muted)', fontSize:12 }}>Not submitted</span>}
+                </td>
+                <td style={{ color:'var(--muted)', fontSize:12 }}>{new Date(u.created_at).toLocaleDateString()}</td>
+                <td>
+                  <div style={{ display:'flex', gap:6' }}>
+                    {u.national_id_url && !u.national_id_verified && (
+                      <button className="btn btn-primary" style={{ fontSize:11, padding:'5px 10px' }} onClick={() => verifyId(u.id, true)}>Verify ID</button>
+                    )}
+                    {!u.is_banned && <button className="btn btn-danger" style={{ fontSize:11, padding:'5px 10px' }} onClick={() => setSelected(u)}>Ban</button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {selected && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>🚫 Ban User: {selected.name}</h3>
+            <p style={{ fontSize:13, color:'var(--muted)', marginBottom:12 }}>This will permanently block {selected.phone} from Nyumba.</p>
+            <textarea value={banReason} onChange={e=>setBanReason(e.target.value)} placeholder="Reason for ban (e.g. Scammer, fake listings...)" />
+            <div className="modal-actions">
+              <button className="btn btn-outline" onClick={() => setSelected(null)}>Cancel</button>
+              <button className="btn btn-danger" disabled={processing} onClick={banUser}>Confirm Ban</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── App Shell ────────────────────────────────────────────────
+function App() {
+  const [page, setPage] = useState('dashboard');
+  const [user, setUser] = useState(() => {
+    const t = localStorage.getItem('admin_token');
+    return t ? { role: 'admin', name: 'Admin' } : null;
+  });
+  const [stats, setStats] = useState({ pending_listings: 0, open_reports: 0 });
+
+  useEffect(() => {
+    if (user) apiFetch('/admin/stats').then(d => setStats(d)).catch(() => {});
+  }, [user, page]);
+
+  if (!user) return <LoginScreen onLogin={u => setUser(u)} />;
+
+  const navItems = [
+    { id:'dashboard', icon:'📊', label:'Dashboard' },
+    { id:'listings', icon:'🏡', label:'Listings Queue', badge: stats.pending_listings },
+    { id:'reports', icon:'🚩', label:'Reports', badge: stats.open_reports },
+    { id:'users', icon:'👥', label:'Users' },
+  ];
+
+  const pages = { dashboard: <Dashboard />, listings: <ListingsQueue />, reports: <ReportsQueue />, users: <UsersPage /> };
+  const titles = { dashboard: 'Dashboard', listings: 'Listings Review Queue', reports: 'Reports Queue', users: 'User Management' };
+
+  return (
+    <div id="root" style={{ display:'flex', height:'100vh', overflow:'hidden' }}>
+      <div className="sidebar">
+        <div className="sidebar-logo">
+          <h1>🏠 Nyumba</h1>
+          <p>Admin Panel · 🇺🇬 Uganda</p>
+        </div>
+        <div className="sidebar-nav">
+          {navItems.map(n => (
+            <div key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}>
+              <span>{n.icon}</span>
+              <span>{n.label}</span>
+              {n.badge > 0 && <span className="nav-badge">{n.badge}</span>}
+            </div>
+          ))}
+        </div>
+        <div style={{ padding:'16px 20px', borderTop:'1px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ fontSize:13, fontWeight:600, color:'rgba(255,255,255,0.7)', marginBottom:8 }}>Logged in as Admin</div>
+          <button className="btn" style={{ background:'rgba(255,255,255,0.1)', color:'#fff', width:'100%', justifyContent:'center', fontSize:13 }}
+            onClick={() => { localStorage.removeItem('admin_token'); setUser(null); }}>
+            Logout
+          </button>
+        </div>
+      </div>
+      <div className="main">
+        <div className="topbar">
+          <h2>{titles[page]}</h2>
+          <div className="topbar-right">
+            <span className="admin-badge">🇺🇬 Uganda Admin</span>
+          </div>
+        </div>
+        <div className="content">{pages[page]}</div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
