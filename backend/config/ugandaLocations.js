@@ -109,7 +109,7 @@ function getRegion(district) {
   return null;
 }
 
-module.exports = {
+export {
   UGANDA_REGIONS,
   ALL_DISTRICTS,
   DISTRICT_TOWNS,

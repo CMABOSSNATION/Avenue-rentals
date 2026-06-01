@@ -1,12 +1,10 @@
-// backend/config/supabase.js
-const { createClient } = require('@supabase/supabase-js');
+// config/supabase.js — Cloudflare Workers compatible
+import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY,
-  {
+// In Workers, env vars come from the request context (c.env)
+// This factory is called per-request with the env object
+export function getSupabase(env) {
+  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false },
-  }
-);
-
-module.exports = supabase;
+  });
+}
