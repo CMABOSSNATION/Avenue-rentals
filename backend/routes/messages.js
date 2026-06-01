@@ -1,104 +1,83 @@
-// backend/routes/messages.js
-const express = require('express');
-const router = express.Router();
-const supabase = require('../config/supabase');
+// routes/messages.js — Hono
+// NOTE: Socket.io replaced with Supabase Realtime.
+// Mobile app should subscribe to Supabase channel:
+//   supabase.channel('inquiry:ID').on('postgres_changes', ...) 
+// This endpoint handles REST API for message history + sending.
 
-/**
- * GET /inquiries/:id/messages
- */
-router.get('/:id/messages', async (req, res) => {
+import { Hono } from 'hono';
+import { getSupabase } from '../config/supabase.js';
+
+const messages = new Hono();
+
+// GET /inquiries/:id/messages
+messages.get('/:id/messages', async (c) => {
   try {
-    // Verify user is part of this inquiry
-    const { data: inquiry } = await supabase
-      .from('inquiries')
-      .select('tenant_id, landlord_id')
-      .eq('id', req.params.id)
-      .single();
+    const userId = c.get('userId');
+    const supabase = getSupabase(c.env);
 
-    if (!inquiry) return res.status(404).json({ error: 'Inquiry not found' });
-    if (inquiry.tenant_id !== req.userId && inquiry.landlord_id !== req.userId) {
-      return res.status(403).json({ error: 'Not authorized' });
+    const { data: inquiry } = await supabase
+      .from('inquiries').select('tenant_id, landlord_id').eq('id', c.req.param('id')).single();
+    if (!inquiry) return c.json({ error: 'Inquiry not found' }, 404);
+    if (inquiry.tenant_id !== userId && inquiry.landlord_id !== userId) {
+      return c.json({ error: 'Not authorized' }, 403);
     }
 
     const { data, error } = await supabase
       .from('messages')
       .select('*, sender:users!sender_id(id, name, avatar_url)')
-      .eq('inquiry_id', req.params.id)
+      .eq('inquiry_id', c.req.param('id'))
       .order('created_at', { ascending: true });
-
     if (error) throw error;
 
     // Mark messages as read
-    await supabase
-      .from('messages')
-      .update({ is_read: true })
-      .eq('inquiry_id', req.params.id)
-      .neq('sender_id', req.userId);
+    await supabase.from('messages').update({ is_read: true })
+      .eq('inquiry_id', c.req.param('id')).neq('sender_id', userId);
 
-    res.json(data);
+    return c.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return c.json({ error: err.message }, 500);
   }
 });
 
-/**
- * POST /inquiries/:id/messages
- */
-router.post('/:id/messages', async (req, res) => {
+// POST /inquiries/:id/messages
+messages.post('/:id/messages', async (c) => {
   try {
-    const { content, message_type, image_url } = req.body;
-    if (!content && !image_url) {
-      return res.status(400).json({ error: 'Content or image required' });
-    }
+    const userId = c.get('userId');
+    const { content, message_type, image_url } = await c.req.json();
+    if (!content && !image_url) return c.json({ error: 'Content or image required' }, 400);
 
-    // Verify access
+    const supabase = getSupabase(c.env);
     const { data: inquiry } = await supabase
-      .from('inquiries')
-      .select('tenant_id, landlord_id, status')
-      .eq('id', req.params.id)
-      .single();
-
-    if (!inquiry) return res.status(404).json({ error: 'Inquiry not found' });
-    if (inquiry.tenant_id !== req.userId && inquiry.landlord_id !== req.userId) {
-      return res.status(403).json({ error: 'Not authorized' });
+      .from('inquiries').select('tenant_id, landlord_id, status').eq('id', c.req.param('id')).single();
+    if (!inquiry) return c.json({ error: 'Inquiry not found' }, 404);
+    if (inquiry.tenant_id !== userId && inquiry.landlord_id !== userId) {
+      return c.json({ error: 'Not authorized' }, 403);
     }
     if (inquiry.status === 'rejected' || inquiry.status === 'closed') {
-      return res.status(400).json({ error: 'This conversation is closed' });
+      return c.json({ error: 'This conversation is closed' }, 400);
     }
 
     const { data: message, error } = await supabase
       .from('messages')
       .insert({
-        inquiry_id: req.params.id,
-        sender_id: req.userId,
+        inquiry_id: c.req.param('id'),
+        sender_id: userId,
         content: content || '',
         message_type: message_type || 'text',
         image_url: image_url || null,
       })
       .select('*, sender:users!sender_id(id, name, avatar_url)')
       .single();
-
     if (error) throw error;
 
-    // Real-time via Socket.io
-    const io = req.app.get('io');
-    io.to(`inquiry_${req.params.id}`).emit('new_message', message);
+    // Supabase Realtime handles push to subscribers automatically
+    // via postgres_changes on the messages table.
+    // No Socket.io needed.
 
-    // Notify other party via socket if not in room
-    const connectedUsers = req.app.get('connectedUsers');
-    const otherId = inquiry.tenant_id === req.userId ? inquiry.landlord_id : inquiry.tenant_id;
-    const otherSocketId = connectedUsers.get(otherId);
-    if (otherSocketId) {
-      io.to(otherSocketId).emit('message_notification', {
-        inquiry_id: req.params.id,
-        message,
-      });
-    }
-
-    res.status(201).json(message);
+    return c.json(message, 201);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return c.json({ error: err.message }, 500);
   }
 });
 
-module.exports = router;
+export default messages;

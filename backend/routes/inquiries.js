@@ -1,225 +1,122 @@
-// backend/routes/inquiries.js
-const express = require('express');
-const router = express.Router();
-const supabase = require('../config/supabase');
-const { requireRole } = require('../middleware/auth');
-const { checkBehavioralLimits } = require('../middleware/deviceFingerprint');
-const whatsapp = require('../services/whatsapp');
+// routes/inquiries.js — Hono
+import { Hono } from 'hono';
+import { getSupabase } from '../config/supabase.js';
+import { requireRole } from '../middleware/auth.js';
+import { checkBehavioralLimits } from '../middleware/deviceFingerprint.js';
+import * as whatsapp from '../services/whatsapp.js';
 
-/**
- * POST /inquiries — Tenant sends inquiry
- */
-router.post('/', requireRole('tenant'), async (req, res) => {
+const inquiries = new Hono();
+
+// POST /inquiries
+inquiries.post('/', requireRole('tenant'), async (c) => {
   try {
-    const { property_id, message } = req.body;
-    if (!property_id) return res.status(400).json({ error: 'property_id required' });
+    const { property_id, message } = await c.req.json();
+    if (!property_id) return c.json({ error: 'property_id required' }, 400);
 
-    // Behavioral limit
-    const allowed = await checkBehavioralLimits(req.userId, 'send_inquiry');
-    if (!allowed) {
-      return res.status(429).json({
-        error: 'You have sent too many inquiries today. Try again tomorrow.',
-      });
-    }
+    const allowed = await checkBehavioralLimits(c.get('userId'), 'send_inquiry', c.env);
+    if (!allowed) return c.json({ error: 'You have sent too many inquiries today. Try again tomorrow.' }, 429);
 
-    // Get property + landlord info
+    const supabase = getSupabase(c.env);
     const { data: property } = await supabase
-      .from('properties')
-      .select('id, title, landlord_id, status, users!landlord_id(name, phone)')
-      .eq('id', property_id)
-      .single();
+      .from('properties').select('id, title, landlord_id, status, users!landlord_id(name, phone)').eq('id', property_id).single();
 
-    if (!property) return res.status(404).json({ error: 'Property not found' });
-    if (property.status !== 'active') {
-      return res.status(400).json({ error: 'This property is not available' });
-    }
-    if (property.landlord_id === req.userId) {
-      return res.status(400).json({ error: 'You cannot inquire about your own property' });
-    }
+    if (!property) return c.json({ error: 'Property not found' }, 404);
+    if (property.status !== 'active') return c.json({ error: 'This property is not available' }, 400);
+    if (property.landlord_id === c.get('userId')) return c.json({ error: 'You cannot inquire about your own property' }, 400);
 
-    // Check for existing inquiry from this tenant
     const { data: existing } = await supabase
-      .from('inquiries')
-      .select('id, status')
-      .eq('property_id', property_id)
-      .eq('tenant_id', req.userId)
-      .neq('status', 'closed')
-      .single();
+      .from('inquiries').select('id, status').eq('property_id', property_id).eq('tenant_id', c.get('userId')).neq('status', 'closed').single();
+    if (existing) return c.json({ error: 'You already have an open inquiry for this property', inquiry_id: existing.id }, 400);
 
-    if (existing) {
-      return res.status(400).json({
-        error: 'You already have an open inquiry for this property',
-        inquiry_id: existing.id,
-      });
-    }
+    const { data: tenant } = await supabase.from('users').select('name, phone').eq('id', c.get('userId')).single();
 
-    const { data: tenant } = await supabase
-      .from('users')
-      .select('name, phone')
-      .eq('id', req.userId)
-      .single();
-
-    // Create inquiry
     const { data: inquiry, error } = await supabase
       .from('inquiries')
-      .insert({
-        property_id,
-        tenant_id: req.userId,
-        landlord_id: property.landlord_id,
-        message: message || 'Hello, I am interested in your property.',
-      })
-      .select()
-      .single();
-
+      .insert({ property_id, tenant_id: c.get('userId'), landlord_id: property.landlord_id, message: message || 'Hello, I am interested in your property.' })
+      .select().single();
     if (error) throw error;
 
-    // Update property inquiry count
-    await supabase.rpc('increment', {
-      table_name: 'properties',
-      column_name: 'inquiries_count',
-      row_id: property_id,
-    });
+    await supabase.rpc('increment', { table_name: 'properties', column_name: 'inquiries_count', row_id: property_id });
 
-    // WhatsApp notification to landlord
     const landlord = property.users;
     if (landlord?.phone) {
-      await whatsapp.notifyLandlordNewInquiry(
-        landlord.phone, landlord.name, tenant.name, property.title
-      );
+      await whatsapp.notifyLandlordNewInquiry(landlord.phone, landlord.name, tenant.name, property.title, c.env);
     }
 
-    // Socket.io: notify landlord if online
-    const io = req.app.get('io');
-    const connectedUsers = req.app.get('connectedUsers');
-    const landlordSocketId = connectedUsers.get(property.landlord_id);
-    if (landlordSocketId) {
-      io.to(landlordSocketId).emit('new_inquiry', {
-        inquiry,
-        tenant: { name: tenant.name },
-        property: { title: property.title },
-      });
-    }
-
-    res.status(201).json({ inquiry });
+    return c.json({ inquiry }, 201);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return c.json({ error: err.message }, 500);
   }
 });
 
-/**
- * GET /inquiries — Get my inquiries
- */
-router.get('/', async (req, res) => {
+// GET /inquiries
+inquiries.get('/', async (c) => {
   try {
+    const supabase = getSupabase(c.env);
     let query = supabase
       .from('inquiries')
-      .select(`
-        *,
-        properties(id, title, district, town, type, price, property_images(url, order_index)),
-        tenant:users!tenant_id(id, name, avatar_url, rating),
-        landlord:users!landlord_id(id, name, avatar_url, rating, is_verified)
-      `)
+      .select('*, properties(id, title, district, town, type, price, property_images(url, order_index)), tenant:users!tenant_id(id, name, avatar_url, rating), landlord:users!landlord_id(id, name, avatar_url, rating, is_verified)')
       .order('created_at', { ascending: false });
 
-    if (req.userRole === 'tenant') {
-      query = query.eq('tenant_id', req.userId);
+    if (c.get('userRole') === 'tenant') {
+      query = query.eq('tenant_id', c.get('userId'));
     } else {
-      query = query.eq('landlord_id', req.userId);
+      query = query.eq('landlord_id', c.get('userId'));
     }
 
     const { data, error } = await query;
     if (error) throw error;
-    res.json(data);
+    return c.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return c.json({ error: err.message }, 500);
   }
 });
 
-/**
- * PUT /inquiries/:id/accept — Landlord accepts inquiry
- */
-router.put('/:id/accept', requireRole('landlord'), async (req, res) => {
+// PUT /inquiries/:id/accept
+inquiries.put('/:id/accept', requireRole('landlord'), async (c) => {
   try {
+    const supabase = getSupabase(c.env);
     const { data: inquiry } = await supabase
-      .from('inquiries')
-      .select('*, properties(title), tenant:users!tenant_id(name, phone)')
-      .eq('id', req.params.id)
-      .single();
+      .from('inquiries').select('*, properties(title), tenant:users!tenant_id(name, phone)').eq('id', c.req.param('id')).single();
 
-    if (!inquiry) return res.status(404).json({ error: 'Inquiry not found' });
-    if (inquiry.landlord_id !== req.userId) {
-      return res.status(403).json({ error: 'Not your inquiry' });
-    }
+    if (!inquiry) return c.json({ error: 'Inquiry not found' }, 404);
+    if (inquiry.landlord_id !== c.get('userId')) return c.json({ error: 'Not your inquiry' }, 403);
 
-    await supabase
-      .from('inquiries')
-      .update({ status: 'accepted' })
-      .eq('id', req.params.id);
+    await supabase.from('inquiries').update({ status: 'accepted' }).eq('id', c.req.param('id'));
 
-    const { data: landlord } = await supabase
-      .from('users')
-      .select('name')
-      .eq('id', req.userId)
-      .single();
-
-    // Notify tenant via WhatsApp
-    if (inquiry.tenant?.phone) {
-      await whatsapp.notifyTenantInquiryAccepted(
-        inquiry.tenant.phone, inquiry.tenant.name,
-        landlord.name, inquiry.properties.title
-      );
-    }
-
-    // Socket notification
-    const io = req.app.get('io');
-    const connectedUsers = req.app.get('connectedUsers');
-    const tenantSocketId = connectedUsers.get(inquiry.tenant_id);
-    if (tenantSocketId) {
-      io.to(tenantSocketId).emit('inquiry_accepted', { inquiry_id: req.params.id });
-    }
-
-    res.json({ message: 'Inquiry accepted' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * PUT /inquiries/:id/reject — Landlord rejects inquiry
- */
-router.put('/:id/reject', requireRole('landlord'), async (req, res) => {
-  try {
-    const { data: inquiry } = await supabase
-      .from('inquiries')
-      .select('*, properties(title), tenant:users!tenant_id(name, phone)')
-      .eq('id', req.params.id)
-      .single();
-
-    if (!inquiry) return res.status(404).json({ error: 'Inquiry not found' });
-    if (inquiry.landlord_id !== req.userId) {
-      return res.status(403).json({ error: 'Not your inquiry' });
-    }
-
-    await supabase
-      .from('inquiries')
-      .update({ status: 'rejected' })
-      .eq('id', req.params.id);
-
-    const { data: landlord } = await supabase
-      .from('users')
-      .select('name').eq('id', req.userId).single();
+    const { data: landlord } = await supabase.from('users').select('name').eq('id', c.get('userId')).single();
 
     if (inquiry.tenant?.phone) {
-      await whatsapp.notifyTenantInquiryRejected(
-        inquiry.tenant.phone, inquiry.tenant.name,
-        landlord.name, inquiry.properties.title
-      );
+      await whatsapp.notifyTenantInquiryAccepted(inquiry.tenant.phone, inquiry.tenant.name, landlord.name, inquiry.properties.title, c.env);
     }
 
-    res.json({ message: 'Inquiry rejected' });
+    return c.json({ message: 'Inquiry accepted' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return c.json({ error: err.message }, 500);
   }
 });
 
-module.exports = router;
+// PUT /inquiries/:id/reject
+inquiries.put('/:id/reject', requireRole('landlord'), async (c) => {
+  try {
+    const supabase = getSupabase(c.env);
+    const { data: inquiry } = await supabase
+      .from('inquiries').select('*, properties(title), tenant:users!tenant_id(name, phone)').eq('id', c.req.param('id')).single();
+
+    if (!inquiry) return c.json({ error: 'Inquiry not found' }, 404);
+    if (inquiry.landlord_id !== c.get('userId')) return c.json({ error: 'Not your inquiry' }, 403);
+
+    await supabase.from('inquiries').update({ status: 'rejected' }).eq('id', c.req.param('id'));
+
+    const { data: landlord } = await supabase.from('users').select('name').eq('id', c.get('userId')).single();
+    if (inquiry.tenant?.phone) {
+      await whatsapp.notifyTenantInquiryRejected(inquiry.tenant.phone, inquiry.tenant.name, landlord.name, inquiry.properties.title, c.env);
+    }
+
+    return c.json({ message: 'Inquiry rejected' });
+  } catch (err) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+export default inquiries;

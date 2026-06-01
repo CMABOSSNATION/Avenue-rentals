@@ -1,183 +1,119 @@
-// backend/routes/auth.js
-const express = require('express');
-const router = express.Router();
-const supabase = require('../config/supabase');
-const { sendOTP, verifyOTP } = require('../services/otp');
-const { generateToken, generateRefreshToken, verifyTokenSync } = require('../middleware/auth');
-const { validateUgandaPhone } = require('../config/ugandaLocations');
-const { checkDeviceFingerprint } = require('../middleware/deviceFingerprint');
+// routes/auth.js — Hono
+import { Hono } from 'hono';
+import { getSupabase } from '../config/supabase.js';
+import { sendOTP, verifyOTP } from '../services/otp.js';
+import { generateToken, generateRefreshToken, verifyTokenSync } from '../middleware/auth.js';
+import { validateUgandaPhone } from '../config/ugandaLocations.js';
+import { checkDeviceFingerprint } from '../middleware/deviceFingerprint.js';
+import { authRateLimiter } from '../middleware/rateLimiter.js';
 
-/**
- * POST /auth/send-otp
- * Body: { phone: "0771234567" }
- */
-router.post('/send-otp', async (req, res) => {
+const auth = new Hono();
+
+// POST /auth/send-otp
+auth.post('/send-otp', authRateLimiter, async (c) => {
   try {
-    const { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: 'Phone number required' });
+    const { phone } = await c.req.json();
+    if (!phone) return c.json({ error: 'Phone number required' }, 400);
 
-    // Validate Uganda number
     const { valid, normalized, network } = validateUgandaPhone(phone);
     if (!valid) {
-      return res.status(400).json({
-        error: 'Please enter a valid Uganda mobile number (MTN or Airtel)',
-      });
+      return c.json({ error: 'Please enter a valid Uganda mobile number (MTN or Airtel)' }, 400);
     }
 
-    // Check blacklist
+    const supabase = getSupabase(c.env);
+
     const { data: blacklisted } = await supabase
-      .from('blacklist')
-      .select('id')
-      .eq('phone', normalized)
-      .single();
-
+      .from('blacklist').select('id').eq('phone', normalized).single();
     if (blacklisted) {
-      // Generic message — don't reveal why
-      return res.status(403).json({
-        error: 'This number cannot be used. Contact support at support@nyumba.ug',
-      });
+      return c.json({ error: 'This number cannot be used. Contact support at support@nyumba.ug' }, 403);
     }
 
-    // Check device fingerprint blacklist
-    const deviceId = req.headers['x-device-id'];
+    const deviceId = c.req.header('x-device-id');
     if (deviceId) {
       const { data: deviceBlacklisted } = await supabase
-        .from('blacklist')
-        .select('id')
-        .eq('device_fingerprint', deviceId)
-        .single();
-
+        .from('blacklist').select('id').eq('device_fingerprint', deviceId).single();
       if (deviceBlacklisted) {
-        return res.status(403).json({
-          error: 'This device cannot be used. Contact support.',
-        });
+        return c.json({ error: 'This device cannot be used. Contact support.' }, 403);
       }
     }
 
-    await sendOTP(normalized);
+    await sendOTP(normalized, c.env);
 
-    res.json({
+    return c.json({
       message: `Verification code sent to ${normalized}`,
       network,
-      // In dev, also return code
-      ...(process.env.NODE_ENV === 'development' && { dev_note: 'Check server logs for OTP' }),
+      ...(c.env.NODE_ENV === 'development' && { dev_note: 'Check server logs for OTP' }),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return c.json({ error: err.message }, 500);
   }
 });
 
-/**
- * POST /auth/verify-otp
- * Body: { phone, code, role?, name? }
- * role & name required only for new users
- */
-router.post('/verify-otp', async (req, res) => {
+// POST /auth/verify-otp
+auth.post('/verify-otp', authRateLimiter, async (c) => {
   try {
-    const { phone, code, role, name } = req.body;
-
-    if (!phone || !code) {
-      return res.status(400).json({ error: 'Phone and code required' });
-    }
+    const { phone, code, role, name } = await c.req.json();
+    if (!phone || !code) return c.json({ error: 'Phone and code required' }, 400);
 
     const { valid: phoneValid, normalized } = validateUgandaPhone(phone);
-    if (!phoneValid) {
-      return res.status(400).json({ error: 'Invalid phone number' });
-    }
+    if (!phoneValid) return c.json({ error: 'Invalid phone number' }, 400);
 
-    // Verify OTP
-    const { valid, reason } = await verifyOTP(normalized, code);
-    if (!valid) {
-      return res.status(400).json({ error: reason });
-    }
+    const { valid, reason } = await verifyOTP(normalized, code, c.env);
+    if (!valid) return c.json({ error: reason }, 400);
 
-    // Find or create user
-    let { data: user } = await supabase
-      .from('users')
-      .select('*')
-      .eq('phone', normalized)
-      .single();
-
+    const supabase = getSupabase(c.env);
+    let { data: user } = await supabase.from('users').select('*').eq('phone', normalized).single();
     const isNewUser = !user;
 
     if (isNewUser) {
-      // New user — require role and name
       if (!role || !['landlord', 'tenant'].includes(role)) {
-        return res.status(400).json({ error: 'Role required for new users (landlord or tenant)' });
+        return c.json({ error: 'Role required for new users (landlord or tenant)' }, 400);
       }
       if (!name || name.trim().length < 2) {
-        return res.status(400).json({ error: 'Name required for new users' });
+        return c.json({ error: 'Name required for new users' }, 400);
       }
-
       const { data: newUser, error } = await supabase
         .from('users')
-        .insert({
-          phone: normalized,
-          name: name.trim(),
-          role,
-          device_fingerprint: req.headers['x-device-id'] || null,
-        })
-        .select()
-        .single();
-
+        .insert({ phone: normalized, name: name.trim(), role, device_fingerprint: c.req.header('x-device-id') || null })
+        .select().single();
       if (error) throw error;
       user = newUser;
     } else {
-      // Update last active + device fingerprint
-      await supabase
-        .from('users')
-        .update({
-          last_active: new Date(),
-          device_fingerprint: req.headers['x-device-id'] || user.device_fingerprint,
-        })
-        .eq('id', user.id);
+      await supabase.from('users').update({
+        last_active: new Date(),
+        device_fingerprint: c.req.header('x-device-id') || user.device_fingerprint,
+      }).eq('id', user.id);
 
-      // Check device fingerprint across accounts
-      if (req.headers['x-device-id']) {
-        await checkDeviceFingerprint(user.id, req.headers['x-device-id']);
+      if (c.req.header('x-device-id')) {
+        await checkDeviceFingerprint(user.id, c.req.header('x-device-id'), c.env);
       }
     }
 
     const tokenPayload = { userId: user.id, role: user.role };
-    const token = generateToken(tokenPayload);
-    const refreshToken = generateRefreshToken(tokenPayload);
+    const token = await generateToken(tokenPayload, c.env);
+    const refreshToken = await generateRefreshToken(tokenPayload, c.env);
 
-    res.json({
-      token,
-      refreshToken,
-      isNewUser,
-      user: {
-        id: user.id,
-        name: user.name,
-        phone: user.phone,
-        role: user.role,
-        avatar_url: user.avatar_url,
-        is_verified: user.is_verified,
-        national_id_verified: user.national_id_verified,
-      },
+    return c.json({
+      token, refreshToken, isNewUser,
+      user: { id: user.id, name: user.name, phone: user.phone, role: user.role, avatar_url: user.avatar_url, is_verified: user.is_verified, national_id_verified: user.national_id_verified },
     });
   } catch (err) {
     console.error('[Auth] verify-otp error:', err);
-    res.status(500).json({ error: 'Authentication failed' });
+    return c.json({ error: 'Authentication failed' }, 500);
   }
 });
 
-/**
- * POST /auth/refresh
- * Body: { refreshToken }
- */
-router.post('/refresh', async (req, res) => {
+// POST /auth/refresh
+auth.post('/refresh', async (c) => {
   try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
-
-    const decoded = verifyTokenSync(refreshToken);
-    const token = generateToken({ userId: decoded.userId, role: decoded.role });
-
-    res.json({ token });
+    const { refreshToken } = await c.req.json();
+    if (!refreshToken) return c.json({ error: 'Refresh token required' }, 400);
+    const decoded = await verifyTokenSync(refreshToken, c.env);
+    const token = await generateToken({ userId: decoded.userId, role: decoded.role }, c.env);
+    return c.json({ token });
   } catch (err) {
-    res.status(401).json({ error: 'Invalid refresh token' });
+    return c.json({ error: 'Invalid refresh token' }, 401);
   }
 });
 
-module.exports = router;
+export default auth;
