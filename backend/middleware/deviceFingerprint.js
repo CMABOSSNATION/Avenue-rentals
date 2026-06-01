@@ -1,19 +1,15 @@
-// backend/middleware/deviceFingerprint.js
-const supabase = require('../config/supabase');
+// middleware/deviceFingerprint.js — Cloudflare Workers compatible
+import { getSupabase } from '../config/supabase.js';
 
-function deviceFingerprint(req, res, next) {
-  req.deviceId = req.headers['x-device-id'] || null;
-  next();
+export async function deviceFingerprint(c, next) {
+  c.set('deviceId', c.req.header('x-device-id') || null);
+  await next();
 }
 
-/**
- * Check device fingerprint against existing accounts
- * Call after user is authenticated to detect multi-account fraud
- */
-async function checkDeviceFingerprint(userId, deviceId) {
+export async function checkDeviceFingerprint(userId, deviceId, env) {
   if (!deviceId) return;
+  const supabase = getSupabase(env);
 
-  // Find other accounts with same device ID
   const { data: otherAccounts } = await supabase
     .from('users')
     .select('id, phone, role')
@@ -21,25 +17,17 @@ async function checkDeviceFingerprint(userId, deviceId) {
     .neq('id', userId);
 
   if (otherAccounts && otherAccounts.length > 0) {
-    // Flag all associated accounts
     const flagReason = `Device ${deviceId} used on multiple accounts: ${otherAccounts.map(a => a.phone).join(', ')}`;
 
-    await supabase
-      .from('behavioral_flags')
-      .insert([
-        {
-          user_id: userId,
-          flag_type: 'multi_account_device',
-          details: flagReason,
-        },
-        ...otherAccounts.map(acc => ({
-          user_id: acc.id,
-          flag_type: 'multi_account_device',
-          details: flagReason,
-        })),
-      ]);
+    await supabase.from('behavioral_flags').insert([
+      { user_id: userId, flag_type: 'multi_account_device', details: flagReason },
+      ...otherAccounts.map(acc => ({
+        user_id: acc.id,
+        flag_type: 'multi_account_device',
+        details: flagReason,
+      })),
+    ]);
 
-    // Update users as flagged
     const allIds = [userId, ...otherAccounts.map(a => a.id)];
     await supabase
       .from('users')
@@ -47,19 +35,15 @@ async function checkDeviceFingerprint(userId, deviceId) {
       .in('id', allIds);
   }
 
-  // Update device fingerprint on user
   await supabase
     .from('users')
     .update({ device_fingerprint: deviceId, last_active: new Date() })
     .eq('id', userId);
 }
 
-/**
- * Check behavioral rate limits for fraud detection
- */
-async function checkBehavioralLimits(userId, action) {
-  const now = new Date();
-  const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
+export async function checkBehavioralLimits(userId, action, env) {
+  const supabase = getSupabase(env);
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   if (action === 'create_listing') {
     const { count } = await supabase
@@ -69,7 +53,7 @@ async function checkBehavioralLimits(userId, action) {
       .gte('created_at', dayAgo.toISOString());
 
     if (count >= 5) {
-      await flagUser(userId, 'excessive_listings', 'Created 5+ listings in 24h');
+      await flagUser(userId, 'excessive_listings', 'Created 5+ listings in 24h', env);
       return false;
     }
   }
@@ -82,7 +66,7 @@ async function checkBehavioralLimits(userId, action) {
       .gte('created_at', dayAgo.toISOString());
 
     if (count >= 15) {
-      await flagUser(userId, 'excessive_inquiries', 'Sent 15+ inquiries in 24h');
+      await flagUser(userId, 'excessive_inquiries', 'Sent 15+ inquiries in 24h', env);
       return false;
     }
   }
@@ -90,21 +74,8 @@ async function checkBehavioralLimits(userId, action) {
   return true;
 }
 
-async function flagUser(userId, flagType, details) {
-  await supabase.from('behavioral_flags').insert({
-    user_id: userId,
-    flag_type: flagType,
-    details,
-  });
-  await supabase
-    .from('users')
-    .update({ is_flagged: true, flag_reason: details })
-    .eq('id', userId);
+export async function flagUser(userId, flagType, details, env) {
+  const supabase = getSupabase(env);
+  await supabase.from('behavioral_flags').insert({ user_id: userId, flag_type: flagType, details });
+  await supabase.from('users').update({ is_flagged: true, flag_reason: details }).eq('id', userId);
 }
-
-module.exports = {
-  deviceFingerprint,
-  checkDeviceFingerprint,
-  checkBehavioralLimits,
-  flagUser,
-};
