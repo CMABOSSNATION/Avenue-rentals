@@ -1,0 +1,30 @@
+name = "nyumba-backend"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# KV namespace for rate limiting
+# Create with: wrangler kv:namespace create RATE_LIMIT_KV
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "REPLACE_WITH_YOUR_KV_ID"
+
+[vars]
+NODE_ENV = "production"
+OTP_EXPIRES_MINUTES = "10"
+JWT_EXPIRES_IN = "7d"
+JWT_REFRESH_EXPIRES_IN = "30d"
+RATE_LIMIT_WINDOW_MS = "900000"
+RATE_LIMIT_MAX = "100"
+AFRICASTALKING_SENDER_ID = "NYUMBA"
+
+# Secrets (set via: wrangler secret put SECRET_NAME)
+# SUPABASE_URL
+# SUPABASE_SERVICE_KEY
+# JWT_SECRET
+# WHATSAPP_API_KEY
+# WHATSAPP_NAMESPACE
+# AFRICASTALKING_API_KEY
+# AFRICASTALKING_USERNAME
+# PLATFORM_MOMO_NUMBER
+# PLATFORM_MOMO_NAME

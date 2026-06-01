@@ -1,0 +1,19 @@
+{
+  "name": "nyumba-backend",
+  "version": "1.0.0",
+  "description": "Nyumba Uganda House Rental Marketplace — Cloudflare Workers API",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "hono": "^4.0.0",
+    "jose": "^5.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
