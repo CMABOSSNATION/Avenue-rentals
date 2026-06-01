@@ -1,16 +1,17 @@
-// backend/services/otp.js
-// OTP generation and SMS delivery via Africa's Talking
-const supabase = require('../config/supabase');
+// services/otp.js — Cloudflare Workers compatible
+import { getSupabase } from '../config/supabase.js';
 
 function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  // Workers have crypto.getRandomValues
+  const arr = new Uint32Array(1);
+  crypto.getRandomValues(arr);
+  return String(100000 + (arr[0] % 900000));
 }
 
-/**
- * Create OTP and send SMS via Africa's Talking
- */
-async function sendOTP(phone) {
-  // Clean up expired OTPs for this phone
+export async function sendOTP(phone, env) {
+  const supabase = getSupabase(env);
+
+  // Clean up expired OTPs
   await supabase
     .from('otp_codes')
     .delete()
@@ -18,38 +19,41 @@ async function sendOTP(phone) {
     .lt('expires_at', new Date().toISOString());
 
   const code = generateOTP();
-  const expiresAt = new Date(Date.now() + parseInt(process.env.OTP_EXPIRES_MINUTES || 10) * 60 * 1000);
+  const expiresAt = new Date(Date.now() + parseInt(env.OTP_EXPIRES_MINUTES || 10) * 60 * 1000);
 
-  // Store OTP
   await supabase.from('otp_codes').insert({
     phone,
     code,
     expires_at: expiresAt.toISOString(),
   });
 
-  // Send SMS
-  const message = `Your Nyumba verification code is: ${code}. Valid for ${process.env.OTP_EXPIRES_MINUTES || 10} minutes. Do not share this code.`;
+  const message = `Your Nyumba verification code is: ${code}. Valid for ${env.OTP_EXPIRES_MINUTES || 10} minutes. Do not share this code.`;
 
-  if (process.env.NODE_ENV === 'development') {
-    // Dev mode: just log it
+  if (env.NODE_ENV === 'development') {
     console.log(`[OTP DEV] Code for ${phone}: ${code}`);
     return { success: true, dev: true };
   }
 
-  // Africa's Talking SMS
+  // Africa's Talking SMS via HTTP (no Node SDK needed)
   try {
-    const AfricasTalking = require('africastalking')({
-      apiKey: process.env.AFRICASTALKING_API_KEY,
-      username: process.env.AFRICASTALKING_USERNAME,
-    });
-
-    const sms = AfricasTalking.SMS;
-    await sms.send({
-      to: [phone],
+    const formData = new URLSearchParams({
+      username: env.AFRICASTALKING_USERNAME,
+      to: phone,
       message,
-      from: process.env.AFRICASTALKING_SENDER_ID || 'NYUMBA',
+      from: env.AFRICASTALKING_SENDER_ID || 'NYUMBA',
     });
 
+    const response = await fetch('https://api.africastalking.com/version1/messaging', {
+      method: 'POST',
+      headers: {
+        'apiKey': env.AFRICASTALKING_API_KEY,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: formData.toString(),
+    });
+
+    if (!response.ok) throw new Error(`SMS API error: ${response.status}`);
     return { success: true };
   } catch (err) {
     console.error('[OTP] SMS send failed:', err.message);
@@ -57,11 +61,9 @@ async function sendOTP(phone) {
   }
 }
 
-/**
- * Verify OTP code
- * Returns: { valid: boolean, reason?: string }
- */
-async function verifyOTP(phone, code) {
+export async function verifyOTP(phone, code, env) {
+  const supabase = getSupabase(env);
+
   const { data: otpRecord } = await supabase
     .from('otp_codes')
     .select('*')
@@ -73,17 +75,8 @@ async function verifyOTP(phone, code) {
     .limit(1)
     .single();
 
-  if (!otpRecord) {
-    return { valid: false, reason: 'Invalid or expired code' };
-  }
+  if (!otpRecord) return { valid: false, reason: 'Invalid or expired code' };
 
-  // Mark as used
-  await supabase
-    .from('otp_codes')
-    .update({ used: true })
-    .eq('id', otpRecord.id);
-
+  await supabase.from('otp_codes').update({ used: true }).eq('id', otpRecord.id);
   return { valid: true };
 }
-
-module.exports = { sendOTP, verifyOTP };
